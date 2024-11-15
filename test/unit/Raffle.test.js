@@ -93,7 +93,6 @@ const { developmentChains, networkConfig } = require("../../helper-hardhat-confi
                   await raffle.enterRaffle({ value: raffleEntranceFee })
                   await network.provider.send("evm_increaseTime", [interval.toNumber() - 5])
                   await network.provider.request({ method: "evm_mine", params: [] })
-                  await raffle.performUpkeep([])
                   const raffleState = await raffle.getRaffleState()
                   const { upkeepNeeded } = await raffle.callStatic.checkUpkeep("0x")
                   assert(!upkeepNeeded)
@@ -141,12 +140,67 @@ const { developmentChains, networkConfig } = require("../../helper-hardhat-confi
               })
 
               // This test simulates users entering the raffle and wraps the entire functionality of the raffle
-              // inside a promise that will resolve if everything is successful.
+              // inside a `promise` that will resolve if everything is successful.
               // An event listener for the WinnerPicked is set up
               // Mocks of chainlink keepers and vrf coordinator are used to kickoff this winnerPicked event
               // All the assertions are done once the WinnerPicked event is fired
               it("picks a winner, resets, and sends money", async () => {
-                
+                  const additionalEntrances = 3
+                  const startingIndex = 2
+                  let startingBalance
+                  for (let i = startingIndex; i < startingIndex + additionalEntrances; i++) {
+                      // Returns a new instance of the Raffle contract connected to player
+                      raffle = raffleContract.connect(accounts[i])
+                      await raffle.enterRaffle({ value: raffleEntranceFee })
+                  }
+                  const startingTimeStamp = await raffle.getLastTimeStamp()
+                  startingBalance = await ethers.provider.getBalance(raffle.address)
+
+                  await new Promise(async (resolve, reject) => {
+                      // interact with events, waiting until find the event
+                      raffle.once("WinnerPicked", async () => {
+                          console.log("WinnerPicked event fired")
+                          // assert throws an error if it fails, so we need to warp
+                          // it in a try/catch so that the promise returns event if
+                          // it fails.
+                          try {
+                              const recentWinner = await raffle.getRecentWinner()
+                              const raffleState = await raffle.getRaffleState()
+                              const endingTimeStamp = await raffle.getLastTimeStamp()
+                              const numPlayers = await raffle.getNumberOfPlayers()
+                              // winner would be accounts[2] when numPlayers is 4
+                              const winnerBalance = await accounts[2].getBalance()
+                              // Comparisions to check if our ending values are correct:
+                              assert.equal(recentWinner.toString(), accounts[2].address)
+                              assert.equal(raffleState, 0)
+                              assert.equal(numPlayers.toString(), "0")
+                              assert(endingTimeStamp > startingTimeStamp)
+                              assert.equal(
+                                  winnerBalance.toString(),
+                                  startingBalance
+                                      .add(raffleEntranceFee.mul(additionalEntrances))
+                                      .add(raffleEntranceFee)
+                                      .toString()
+                              )
+                              resolve() // if try passes, resolves the promise
+                          } catch (e) {
+                              reject(e) // if try fails, rejects the promise
+                          }
+                      })
+
+                      // kicking off the event by mocking the chainlink keepers and vrf coordinator
+                      try {
+                          const tx = await raffle.performUpkeep("0x")
+                          const txReceipt = await tx.wait(1)
+                          startingBalance = await accounts[2].getBalance()
+                          await vrfCoordinatorV2Mock.fulfillRandomWords(
+                              txReceipt.events[1].args.requestId,
+                              raffle.address
+                          )
+                      } catch (e) {
+                          reject(e)
+                      }
+                  })
               })
           })
       })

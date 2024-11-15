@@ -69,7 +69,7 @@ contract Raffle is VRFConsumerBaseV2, AutomationCompatibleInterface {
     /**
      * @dev This is the function that the Chainlink keeper nodes call
      * they look for `upkeepNeeded` to return True then it would call
-     * `performUpkeep` 
+     * `performUpkeep`
      * the following should be true for this to return true:
      * 1. The time interval has passed between raffle runs.
      * 2. The lottery is open.
@@ -125,7 +125,6 @@ contract Raffle is VRFConsumerBaseV2, AutomationCompatibleInterface {
         s_raffleState = RaffleState.OPEN;
         s_lastTimeStamp = block.timestamp;
         (bool success, ) = recentWinner.call{value: address(this).balance}("");
-        // require(success, "Transfer failed");
         if (!success) revert Raffle__TransferFailed();
         emit WinnerPicked(recentWinner);
     }
